@@ -1,0 +1,64 @@
+name: Build CryptMc APK
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # If you've generated a real release keystore (see generate-keystore.yml)
+      # and added these four repo secrets, this step wires them into
+      # gradle.properties before the build so app/build.gradle.kts picks up
+      # real release signing instead of falling back to the debug key.
+      # Safe to leave the secrets unset - the build still succeeds, just
+      # debug-signed, which is fine for sideloading/testing.
+      - name: Configure release signing (if secrets are present)
+        if: ${{ secrets.CRYPTMC_RELEASE_STORE_B64 != '' }}
+        run: |
+          echo "${{ secrets.CRYPTMC_RELEASE_STORE_B64 }}" | base64 -d > CryptMc/keystore/cryptmc-release.keystore.jks
+          {
+            echo "CRYPTMC_RELEASE_STORE_FILE=keystore/cryptmc-release.keystore.jks"
+            echo "CRYPTMC_RELEASE_STORE_PASSWORD=${{ secrets.CRYPTMC_RELEASE_STORE_PASSWORD }}"
+            echo "CRYPTMC_RELEASE_KEY_ALIAS=${{ secrets.CRYPTMC_RELEASE_KEY_ALIAS }}"
+            echo "CRYPTMC_RELEASE_KEY_PASSWORD=${{ secrets.CRYPTMC_RELEASE_KEY_PASSWORD }}"
+          } >> CryptMc/gradle.properties
+
+      - name: Make gradlew executable
+        run: chmod +x CryptMc/gradlew
+
+      # gradle-wrapper.jar was missing from the uploaded project (only
+      # gradle-wrapper.properties was present), which causes:
+      #   Error: Could not find or load main class org.gradle.wrapper.GradleWrapperMain
+      # This regenerates it using the exact Gradle version already pinned
+      # in gradle-wrapper.properties, so it stays in sync with the project.
+      - name: Ensure gradle-wrapper.jar exists
+        working-directory: CryptMc
+        run: |
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            GRADLE_VERSION=$(grep -oP '(?<=gradle-)[0-9.]+(?=-bin.zip)' gradle/wrapper/gradle-wrapper.properties)
+            echo "gradle-wrapper.jar missing, regenerating for Gradle $GRADLE_VERSION"
+            curl -sL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            /tmp/gradle-${GRADLE_VERSION}/bin/gradle wrapper --gradle-version "$GRADLE_VERSION"
+          fi
+
+      - name: Build release APK
+        working-directory: CryptMc
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CryptMc-release-apk
+          path: CryptMc/app/build/outputs/apk/release/*.apk

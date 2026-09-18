@@ -70,7 +70,7 @@ class ServerForegroundService : Service() {
         val config = intent?.getSerializableExtra(EXTRA_CONFIG) as? ServerConfig
         if (intent?.action == ACTION_START && config != null) {
             processManager.start(config)
-            if (config.bedrockCrossplay) {
+            if (config.bedrockCrossplayEnabled) {
                 // Geyser/Floodgate jars are dropped into plugins/ *before*
                 // this point by ModrinthRepository; nothing else to wire up
                 // here since Paper autoloads plugins on boot.

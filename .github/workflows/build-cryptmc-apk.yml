@@ -44,14 +44,19 @@ jobs:
           gradle-version: "8.9"
 
       - name: Configure release signing when repository secrets are available
-        if: ${{ secrets.CRYPTMC_RELEASE_STORE_B64 != '' }}
+        if: ${{ env.RELEASE_STORE_B64 != '' }}
+        env:
+          RELEASE_STORE_B64: ${{ secrets.CRYPTMC_RELEASE_STORE_B64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.CRYPTMC_RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.CRYPTMC_RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.CRYPTMC_RELEASE_KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.CRYPTMC_RELEASE_STORE_B64 }}" | base64 -d > keystore/cryptmc-release.keystore.jks
+          echo "$RELEASE_STORE_B64" | base64 -d > keystore/cryptmc-release.keystore.jks
           {
             echo "CRYPTMC_RELEASE_STORE_FILE=keystore/cryptmc-release.keystore.jks"
-            echo "CRYPTMC_RELEASE_STORE_PASSWORD=${{ secrets.CRYPTMC_RELEASE_STORE_PASSWORD }}"
-            echo "CRYPTMC_RELEASE_KEY_ALIAS=${{ secrets.CRYPTMC_RELEASE_KEY_ALIAS }}"
-            echo "CRYPTMC_RELEASE_KEY_PASSWORD=${{ secrets.CRYPTMC_RELEASE_KEY_PASSWORD }}"
+            echo "CRYPTMC_RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
+            echo "CRYPTMC_RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS"
+            echo "CRYPTMC_RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
           } >> gradle.properties
 
       - name: Build release APK

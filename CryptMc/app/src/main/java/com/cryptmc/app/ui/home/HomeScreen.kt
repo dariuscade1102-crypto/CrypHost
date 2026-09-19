@@ -33,7 +33,18 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("cryptmc", color = MaterialTheme.colorScheme.primary) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Dns,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("cryptmc", color = MaterialTheme.colorScheme.primary)
+                    }
+                },
                 actions = {
                     IconButton(onClick = onOpenAiAssistant) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Assistant")

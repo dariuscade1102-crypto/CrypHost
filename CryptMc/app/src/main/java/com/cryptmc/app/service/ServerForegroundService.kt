@@ -101,7 +101,7 @@ class ServerForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("CryptMc server running")
             .setContentText(status)
-            .setSmallIcon(android.R.drawable.ic_media_play) // replace with app icon
+            .setSmallIcon(com.cryptmc.app.R.drawable.ic_cryptmc_notification)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

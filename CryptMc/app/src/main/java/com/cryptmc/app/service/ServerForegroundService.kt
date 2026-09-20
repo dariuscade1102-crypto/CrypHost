@@ -39,17 +39,6 @@ import kotlinx.coroutines.launch
  */
 class ServerForegroundService : Service() {
 
-    companion object {
-        @Volatile private var active: ServerForegroundService? = null
-
-        fun sendCommandFromUi(command: String): Boolean {
-            val service = active ?: return false
-            if (!service::processManager.isInitialized || !service.processManager.isRunning.value) return false
-            service.processManager.sendCommand(command)
-            return true
-        }
-    }
-
     private val binder = LocalBinder()
     private val scope = CoroutineScope(SupervisorJob())
     private lateinit var wakeLock: PowerManager.WakeLock
@@ -187,6 +176,15 @@ class ServerForegroundService : Service() {
     }
 
     companion object {
+        @Volatile private var active: ServerForegroundService? = null
+
+        fun sendCommandFromUi(command: String): Boolean {
+            val service = active ?: return false
+            if (!service::processManager.isInitialized || !service.processManager.isRunning.value) return false
+            service.processManager.sendCommand(command)
+            return true
+        }
+
         const val ACTION_START = "com.cryptmc.app.action.START"
         const val ACTION_STOP = "com.cryptmc.app.action.STOP"
         const val ACTION_SEND_COMMAND = "com.cryptmc.app.action.SEND_COMMAND"

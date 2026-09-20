@@ -1,4 +1,7 @@
 package com.cryptmc.app.ui.server
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,8 +12,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.cryptmc.app.data.ServerConfig
+import java.io.File
 
 /**
  * "Select JAR" launches Android's Storage Access Framework document picker
@@ -21,6 +26,24 @@ import com.cryptmc.app.data.ServerConfig
  */
 @Composable
 fun SoftwareTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
+    val context = LocalContext.current
+    val jarPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val name = (uri.lastPathSegment ?: "server.jar").substringAfterLast('/').ifBlank { "server.jar" }
+        runCatching {
+            val target = File(context.filesDir, "server-jars/${config.id}/$name").apply {
+                parentFile?.mkdirs()
+            }
+            context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Unable to read selected JAR" }
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            onChange(config.copy(jarFileName = name, jarPath = target.absolutePath))
+            Toast.makeText(context, "Selected $name", Toast.LENGTH_SHORT).show()
+        }.onFailure { error ->
+            Toast.makeText(context, "Could not import JAR: ${error.message}", Toast.LENGTH_LONG).show()
+        }
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             SectionCard(title = "") {
@@ -44,7 +67,7 @@ fun SoftwareTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    OutlinedButton(onClick = { /* SAF picker, see note above */ }) {
+                    OutlinedButton(onClick = { jarPicker.launch(arrayOf("application/java-archive", "application/octet-stream", "*/*")) }) {
                         Icon(Icons.Filled.Folder, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Select JAR")

@@ -1,4 +1,9 @@
 package com.cryptmc.app.ui.server
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
@@ -12,6 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.cryptmc.app.data.ServerConfig
 import com.cryptmc.app.data.WorldType
+import com.cryptmc.app.server.BackupManager
+import com.cryptmc.app.data.BackupTrigger
+import kotlinx.coroutines.launch
 
 /**
  * "Backup World" zips workingDir/world (+world_nether/world_the_end for
@@ -26,6 +34,11 @@ import com.cryptmc.app.data.WorldType
  */
 @Composable
 fun WorldTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) Toast.makeText(context, "Backup selected. Use the Backups tab to restore it safely.", Toast.LENGTH_LONG).show()
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             SectionCard(title = "World") {
@@ -54,7 +67,13 @@ fun WorldTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
                     tint = MaterialTheme.colorScheme.primary,
                     title = "Backup World",
                     subtitle = "Export world as a ZIP archive",
-                    onClick = { /* zip workingDir/world*, hand to SAF CREATE_DOCUMENT */ }
+                    onClick = {
+                        scope.launch {
+                            val result = BackupManager.createBackup(config, config.schedule.backupIncludePlugins, BackupTrigger.MANUAL)
+                            result.onSuccess { record -> Toast.makeText(context, "Backup created: ${record.filePath}", Toast.LENGTH_LONG).show() }
+                                .onFailure { error -> Toast.makeText(context, "Backup failed: ${error.message}", Toast.LENGTH_LONG).show() }
+                        }
+                    }
                 )
                 Divider()
                 ActionRow(
@@ -62,7 +81,7 @@ fun WorldTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
                     tint = MaterialTheme.colorScheme.tertiary,
                     title = "Import World",
                     subtitle = "Replace world from a ZIP file",
-                    onClick = { /* SAF OPEN_DOCUMENT, unzip over workingDir/world* */ }
+                    onClick = { importPicker.launch(arrayOf("application/zip", "application/octet-stream")) }
                 )
                 Divider()
                 ActionRow(
@@ -70,7 +89,9 @@ fun WorldTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
                     tint = MaterialTheme.colorScheme.secondary,
                     title = "Backup to Google Drive",
                     subtitle = "Upload world backup to Google Drive",
-                    onClick = { /* Drive REST API files.create, drive.file scope */ }
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://drive.google.com/drive/my-drive")))
+                    }
                 )
             }
         }

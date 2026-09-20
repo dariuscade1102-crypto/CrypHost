@@ -154,6 +154,7 @@ private fun SignedInCard(email: String, onSignOut: () -> Unit) {
 
 @Composable
 private fun UpgradeCard() {
+    val context = LocalContext.current
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("PLAN TIER", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -165,7 +166,16 @@ private fun UpgradeCard() {
             PerkRow(Icons.Filled.Public, "Custom Subdomain", "Your own *.CryptMc.app address")
             PerkRow(Icons.Filled.Forum, "Discord premium role", "Exclusive rank in the CryptMc Discord server")
             Spacer(Modifier.height(12.dp))
-            Button(onClick = { /* opens billing flow / Play Billing */ }, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Premium billing is not configured in this build. Add Play Billing before accepting payments.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Icon(Icons.Filled.WorkspacePremium, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Upgrade Now")

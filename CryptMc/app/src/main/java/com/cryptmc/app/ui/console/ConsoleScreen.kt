@@ -1,5 +1,7 @@
 package com.cryptmc.app.ui.console
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -112,7 +114,12 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
                     IconButton(onClick = onAskAi) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = "Ask AI about this server")
                     }
-                    OutlinedButton(onClick = { /* opens embedded web dashboard in Custom Tabs */ }, modifier = Modifier.padding(end = 8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            context?.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:8080")))
+                        },
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
                         Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("WEB CONSOLE")
@@ -167,9 +174,16 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
 
 @Composable
 private fun QuickCommandRow(commands: List<QuickCommand>, onSend: (String) -> Unit, onPrefill: (String) -> Unit) {
+    val context = LocalContext.current
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("— LIVE OUTPUT —", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        IconButton(onClick = { /* share log via ACTION_SEND */ }) {
+        IconButton(onClick = {
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "CryptMc console log\nUse the Console screen to view live output.")
+            }
+            context.startActivity(Intent.createChooser(share, "Share console log"))
+        }) {
             Icon(Icons.Filled.Share, contentDescription = "Share log")
         }
     }

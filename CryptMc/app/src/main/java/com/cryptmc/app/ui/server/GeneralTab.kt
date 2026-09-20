@@ -1,5 +1,7 @@
 package com.cryptmc.app.ui.server
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +21,9 @@ import com.cryptmc.app.data.ServerConfig
 @Composable
 fun GeneralTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
     var motdEditorOpen by remember { mutableStateOf(false) }
+    val iconPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { onChange(config.copy(iconPath = it.toString())) }
+    }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -41,7 +46,7 @@ fun GeneralTab(config: ServerConfig, onChange: (ServerConfig) -> Unit) {
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                    OutlinedButton(onClick = { /* launches SAF image picker, writes result to config.iconPath */ }) {
+                    OutlinedButton(onClick = { iconPicker.launch("image/*") }) {
                         Text("Select")
                     }
                 }

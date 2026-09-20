@@ -25,6 +25,7 @@ import com.cryptmc.app.service.ServerForegroundService
 fun HomeScreen(
     onOpenConsole: (String) -> Unit,
     onOpenSettings: (String) -> Unit,
+    onOpenFiles: (String) -> Unit,
     onOpenAdminDashboard: () -> Unit,
     onOpenAiAssistant: () -> Unit
 ) {
@@ -114,8 +115,10 @@ fun HomeScreen(
                                 .setAction(ServerForegroundService.ACTION_STOP)
                             context.startService(intent)
                         },
-                        onOpenMap = { /* opens squaremap web view if liveWorldMapEnabled */ },
-                        onOpenFiles = { /* deep-links into FilesScreen scoped to this server */ },
+                        onOpenMap = {
+                            android.widget.Toast.makeText(context, "World map is available after a live map plugin is configured.", android.widget.Toast.LENGTH_LONG).show()
+                        },
+                        onOpenFiles = { onOpenFiles(config.id) },
                         onOpenSettings = { onOpenSettings(config.id) },
                         onDelete = { pendingDelete = config }
                     )

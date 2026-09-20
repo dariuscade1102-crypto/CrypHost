@@ -48,6 +48,7 @@ fun AppRoot() {
                 HomeScreen(
                     onOpenConsole = { id -> navController.navigate(Dest.Console.of(id)) },
                     onOpenSettings = { id -> navController.navigate(Dest.ServerSettings.of(id)) },
+                    onOpenFiles = { navController.navigate(Dest.Files.route) },
                     onOpenAdminDashboard = { navController.navigate(Dest.AdminDashboard.route) },
                     onOpenAiAssistant = { navController.navigate(Dest.AiAssistant.general()) }
                 )

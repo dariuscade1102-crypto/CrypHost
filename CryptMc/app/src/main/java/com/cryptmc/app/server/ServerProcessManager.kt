@@ -97,9 +97,9 @@ class ServerProcessManager(
             add(java)
             add("-Xms${config.minRamMb}M")
             add("-Xmx${config.maxRamMb}M")
-            addAll(config.extraJvmArgs)
+            addAll(config.javaFlags.split(Regex("\\s+")).filter { it.isNotBlank() })
             add("-jar")
-            add(config.jarPath)
+            add(config.jarPath ?: error("No server JAR configured"))
             add("nogui")
         }
     }

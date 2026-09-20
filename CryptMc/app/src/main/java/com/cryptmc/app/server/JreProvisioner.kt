@@ -6,14 +6,11 @@ import java.util.zip.ZipInputStream
 
 /**
  * Android has no system `java` binary. PaperMC/Fabric server jars need a real
- * JVM, so we ship a statically-linked ARM JRE (Termux's `openjdk-17` package,
- * or a Liberica/Zulu "Alpine-like" musl/glibc ARM build both work) as an
- * asset, unpack it to app-private storage on first run, and invoke its
- * `bin/java` directly via ProcessBuilder.
+ * JVM, so we ship a statically-linked ARM JRE as an asset, unpack it to
+ * app-private storage on first run, and invoke its `bin/java` directly.
  *
- * This class does NOT bundle the JRE itself — that's a ~180MB binary you
- * need to fetch once and drop into app/src/main/assets/jre-arm64.zip.
- * See README.md "Sourcing the embedded JRE" for exact steps and licenses.
+ * Minimal / low-budget version: fails gracefully with a clear message
+ * instead of hard-crashing if the zip is missing.
  */
 class JreProvisioner(private val context: Context) {
 
@@ -29,19 +26,17 @@ class JreProvisioner(private val context: Context) {
      * Unpacks the bundled JRE zip (matched to the device ABI) into app-private
      * storage and marks the java binary executable. Safe to call repeatedly;
      * no-ops if already provisioned.
+     *
+     * Returns true if ready, false if the asset is missing (so the UI can show
+     * a helpful message instead of crashing).
      */
-    fun provisionIfNeeded(onProgress: (String) -> Unit = {}) {
-        if (isProvisioned()) return
+    fun provisionIfNeeded(onProgress: (String) -> Unit = {}): Boolean {
+        if (isProvisioned()) return true
 
-        // Order matters: prefer 64-bit native ABIs over 32-bit or emulated
-        // ones. Some x86 tablets/Chromebooks report arm ABIs in this list
-        // purely for compatibility-layer translation (libhoudini/ARC++),
-        // which won't work for a real JVM — so x86_64 is checked ahead of
-        // armeabi-v7a to avoid picking an ABI Android can't natively execute.
         val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" }
             ?: android.os.Build.SUPPORTED_ABIS.firstOrNull { it == "x86_64" }
             ?: android.os.Build.SUPPORTED_ABIS.firstOrNull { it == "armeabi-v7a" }
-            ?: error("Unsupported ABI: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
+            ?: return false
 
         val assetName = when (abi) {
             "arm64-v8a" -> "jre-arm64.zip"
@@ -49,33 +44,36 @@ class JreProvisioner(private val context: Context) {
             else -> "jre-armv7.zip"
         }
 
-        onProgress("Unpacking embedded Java runtime ($abi)...")
-        jreDir.mkdirs()
+        return try {
+            onProgress("Unpacking embedded Java runtime ($abi)...")
+            jreDir.mkdirs()
 
-        if (!context.assets.list("").orEmpty().contains(assetName)) {
-            error("Missing $assetName. Add an ABI-matched JRE ZIP to app/src/main/assets; see assets/README.md")
-        }
-
-        context.assets.open(assetName).use { input ->
-            ZipInputStream(input).use { zip ->
-                var entry = zip.nextEntry
-                while (entry != null) {
-                    val outFile = File(jreDir, entry.name)
-                    if (entry.isDirectory) {
-                        outFile.mkdirs()
-                    } else {
-                        outFile.parentFile?.mkdirs()
-                        outFile.outputStream().use { out -> zip.copyTo(out) }
+            context.assets.open(assetName).use { input ->
+                ZipInputStream(input).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        val outFile = File(jreDir, entry.name)
+                        if (entry.isDirectory) {
+                            outFile.mkdirs()
+                        } else {
+                            outFile.parentFile?.mkdirs()
+                            outFile.outputStream().use { out -> zip.copyTo(out) }
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
                     }
-                    zip.closeEntry()
-                    entry = zip.nextEntry
                 }
             }
-        }
 
-        if (!javaBinary.setExecutable(true, false)) {
-            error("Failed to mark JRE binary executable — check filesystem mount options")
+            if (!javaBinary.setExecutable(true, false)) {
+                onProgress("Failed to mark JRE binary executable")
+                return false
+            }
+            onProgress("Java runtime ready.")
+            true
+        } catch (e: Exception) {
+            onProgress("JRE asset missing or broken: ${e.message}. See MINIMAL.md for how to add it.")
+            false
         }
-        onProgress("Java runtime ready.")
     }
 }

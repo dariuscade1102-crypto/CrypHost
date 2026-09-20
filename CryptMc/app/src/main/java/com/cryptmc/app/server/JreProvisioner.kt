@@ -52,6 +52,10 @@ class JreProvisioner(private val context: Context) {
         onProgress("Unpacking embedded Java runtime ($abi)...")
         jreDir.mkdirs()
 
+        if (!context.assets.list("").orEmpty().contains(assetName)) {
+            error("Missing $assetName. Add an ABI-matched JRE ZIP to app/src/main/assets; see assets/README.md")
+        }
+
         context.assets.open(assetName).use { input ->
             ZipInputStream(input).use { zip ->
                 var entry = zip.nextEntry

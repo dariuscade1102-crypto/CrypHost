@@ -124,7 +124,7 @@ private fun AppBottomBar(navController: androidx.navigation.NavHostController) {
 
     NavigationBar {
         bottomBarDestinations.forEach { dest ->
-            val selected = currentRoute?.hierarchy?.any { it.route == dest.route } == true
+            val selected = currentRoute?.hierarchy?.any { destination -> destination.route == dest.route } == true
             NavigationBarItem(
                 selected = selected,
                 onClick = {

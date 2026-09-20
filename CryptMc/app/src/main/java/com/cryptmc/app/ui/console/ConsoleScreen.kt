@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.cryptmc.app.data.ServerRepository
+import com.cryptmc.app.service.ServerForegroundService
 
 private data class QuickCommand(val label: String, val icon: ImageVector, val command: String, val destructive: Boolean = false)
 
@@ -99,8 +100,11 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
     }
 
     fun sendCommand(command: String) {
-        consoleLines.add("> $command")
-        // ServerProcessManager.sendCommand(command) once bound to the service.
+        if (ServerForegroundService.sendCommandFromUi(command)) {
+            consoleLines.add("> $command")
+        } else {
+            consoleLines.add("[ERROR] Server is not running; command was not sent: $command")
+        }
     }
 
     Scaffold(

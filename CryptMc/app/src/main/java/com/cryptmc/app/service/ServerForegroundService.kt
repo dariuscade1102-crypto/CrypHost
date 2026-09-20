@@ -39,6 +39,17 @@ import kotlinx.coroutines.launch
  */
 class ServerForegroundService : Service() {
 
+    companion object {
+        @Volatile private var active: ServerForegroundService? = null
+
+        fun sendCommandFromUi(command: String): Boolean {
+            val service = active ?: return false
+            if (!service::processManager.isInitialized || !service.processManager.isRunning.value) return false
+            service.processManager.sendCommand(command)
+            return true
+        }
+    }
+
     private val binder = LocalBinder()
     private val scope = CoroutineScope(SupervisorJob())
     private lateinit var wakeLock: PowerManager.WakeLock
@@ -60,6 +71,7 @@ class ServerForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        active = this
         val jre = JreProvisioner(applicationContext)
         processManager = ServerProcessManager(jre, scope)
         tunnelManager = TunnelManager(applicationContext, scope)
@@ -146,6 +158,7 @@ class ServerForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        if (active === this) active = null
         if (wakeLock.isHeld) wakeLock.release()
         super.onDestroy()
     }

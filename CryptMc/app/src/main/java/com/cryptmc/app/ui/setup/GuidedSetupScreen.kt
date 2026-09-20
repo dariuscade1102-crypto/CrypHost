@@ -48,7 +48,7 @@ fun GuidedSetupScreen(onFinished: (serverId: String) -> Unit) {
                 navigationIcon = {
                     if (stepIndex > 0) {
                         IconButton(onClick = { stepIndex-- }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(ArrowBack, contentDescription = "Back")
                         }
                     }
                 }

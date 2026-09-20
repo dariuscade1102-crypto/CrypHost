@@ -21,6 +21,20 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
+
+        // Google Sign-In (see auth/GoogleAuthManager.kt) needs the *Web*
+        // OAuth client ID from Google Cloud Console > APIs & Services >
+        // Credentials. Pulled from gradle.properties (or a matching env
+        // var / CI secret) instead of hardcoding it in Compose UI code, so
+        // it's not just sitting in a source file, and so this project
+        // builds for anyone without a placeholder silently shipping.
+        // Until it's set, sign-in fails fast with a clear message instead
+        // of the opaque Play Services error users saw before this fix.
+        buildConfigField(
+            "String",
+            "GOOGLE_WEB_CLIENT_ID",
+            "\"${findProperty("CRYPTMC_GOOGLE_WEB_CLIENT_ID") ?: "UNSET"}\""
+        )
     }
 
     // Release signing reads from gradle.properties (or matching env vars),
@@ -62,6 +76,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"

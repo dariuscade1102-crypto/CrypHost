@@ -42,7 +42,7 @@ class ServerJarDownloader(
             Resolved(fileName, downloadUrl)
         data class Fabric(val loaderVersion: String, val installerVersion: String, override val downloadUrl: String) :
             Resolved("fabric-server-launch.jar", downloadUrl)
-        data class Vanilla(override val fileName: String, override val downloadUrl: String) :
+        data class Vanilla(override val fileName: String, override val downloadUrl: String, val sha1: String?) :
             Resolved(fileName, downloadUrl)
     }
 
@@ -73,7 +73,10 @@ class ServerJarDownloader(
                             ?: error("Unknown Minecraft version $minecraftVersion")
                         val meta = fetchJson(entry.url, MojangVersionMeta::class.java)
                         val server = meta.downloads.server ?: error("No server.jar published for $minecraftVersion")
-                        Resolved.Vanilla("server.jar", server.url)
+                        // Mojang's manifest hands back a sha1 for exactly
+                        // this reason — it was being fetched into
+                        // MojangDownloadEntry and then never looked at again.
+                        Resolved.Vanilla("server.jar", server.url, server.sha1)
                     }
                     else -> error(
                         "${loader.displayName} has no download API — user must sideload the jar via " +
@@ -93,6 +96,7 @@ class ServerJarDownloader(
             destinationDir.mkdirs()
             val outFile = File(destinationDir, resolved.fileName)
             val request = Request.Builder().url(resolved.downloadUrl).build()
+            val digest = java.security.MessageDigest.getInstance("SHA-1")
             okHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) error("Download failed: HTTP ${response.code}")
                 val body = response.body ?: error("Empty response body")
@@ -105,10 +109,23 @@ class ServerJarDownloader(
                             val read = input.read(buffer)
                             if (read == -1) break
                             output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
                             written += read
                             total?.let { onProgress(written.toFloat() / it) }
                         }
                     }
+                }
+            }
+            // Mojang publishes a sha1 for the vanilla server.jar specifically
+            // so a corrupted/tampered download can be caught before it's
+            // ever handed to `java -jar`. This was fetched (MojangDownloadEntry.sha1)
+            // and then discarded — nothing ever compared it against what
+            // actually landed on disk.
+            if (resolved is Resolved.Vanilla && resolved.sha1 != null) {
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!actual.equals(resolved.sha1, ignoreCase = true)) {
+                    outFile.delete()
+                    error("Downloaded server.jar failed checksum verification (expected ${resolved.sha1}, got $actual)")
                 }
             }
             outFile

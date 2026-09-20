@@ -41,7 +41,8 @@
         android:icon="@drawable/ic_cryptmc_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.CryptMc"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        xmlns:tools="http://schemas.android.com/tools">
 
         <activity
             android:name=".MainActivity"

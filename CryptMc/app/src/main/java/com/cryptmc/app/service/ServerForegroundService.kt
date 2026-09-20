@@ -12,11 +12,13 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.cryptmc.app.MainActivity
 import com.cryptmc.app.data.ServerConfig
+import com.cryptmc.app.data.ServerRepository
 import com.cryptmc.app.server.JreProvisioner
 import com.cryptmc.app.server.ServerProcessManager
 import com.cryptmc.app.tunnel.TunnelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Requirement #6: keeps the server (and tunnel agent) alive independent of
@@ -46,6 +48,12 @@ class ServerForegroundService : Service() {
     lateinit var tunnelManager: TunnelManager
         private set
 
+    // Which server config is currently occupying the one process slot
+    // ServerProcessManager owns (see its class doc — exactly one at a time).
+    // Needed so the isRunning collector below knows which ServerRepository
+    // entry to update.
+    private var currentServerId: String? = null
+
     inner class LocalBinder : android.os.Binder() {
         fun getService(): ServerForegroundService = this@ServerForegroundService
     }
@@ -60,6 +68,19 @@ class ServerForegroundService : Service() {
         wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK, "CryptMc::ServerWakeLock"
         ).apply { setReferenceCounted(false) }
+
+        // Nothing previously wrote to ServerRepository.updateStatus(), so
+        // every screen's ONLINE/OFFLINE badge was permanently stuck on the
+        // ServerRuntimeStatus() default (running = false) no matter what
+        // was actually happening in this process. Mirror the real state in.
+        scope.launch {
+            processManager.isRunning.collect { running ->
+                currentServerId?.let { id ->
+                    ServerRepository.updateStatus(id) { it.copy(running = running) }
+                }
+                updateNotification(if (running) "Server running" else "Server idle")
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -69,7 +90,23 @@ class ServerForegroundService : Service() {
 
         val config = intent?.getSerializableExtra(EXTRA_CONFIG) as? ServerConfig
         if (intent?.action == ACTION_START && config != null) {
-            processManager.start(config)
+            if (processManager.isRunning.value) {
+                // ServerProcessManager.start() throws if a process is
+                // already running (it only ever owns one — see its class
+                // doc). That used to be an uncaught IllegalStateException
+                // here, which crashes the service. HomeScreen now disables
+                // "Start" on other cards while one is running, but this
+                // guard stays since it's a real invariant, not just UI
+                // politeness.
+                updateNotification("Already running a different server — stop it first")
+                return START_STICKY
+            }
+            currentServerId = config.id
+            runCatching { processManager.start(config) }
+                .onFailure { e ->
+                    currentServerId = null
+                    updateNotification("Failed to start: ${e.message}")
+                }
             if (config.bedrockCrossplayEnabled) {
                 // Geyser/Floodgate jars are dropped into plugins/ *before*
                 // this point by ModrinthRepository; nothing else to wire up
@@ -77,13 +114,24 @@ class ServerForegroundService : Service() {
             }
         } else if (intent?.action == ACTION_STOP) {
             processManager.stop()
+            currentServerId = null
             stopSelf()
+        } else if (intent?.action == ACTION_SEND_COMMAND) {
+            val command = intent.getStringExtra(EXTRA_COMMAND)
+            if (command != null && processManager.isRunning.value) {
+                processManager.sendCommand(command)
+            }
         }
 
         // START_STICKY: ask the OS to recreate the service (without the
         // original intent) if it's killed under memory pressure, so a
         // crashed dashboard doesn't silently drop the running server.
         return START_STICKY
+    }
+
+    private fun updateNotification(status: String) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIFICATION_ID, buildNotification(status))
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -119,7 +167,9 @@ class ServerForegroundService : Service() {
     companion object {
         const val ACTION_START = "com.cryptmc.app.action.START"
         const val ACTION_STOP = "com.cryptmc.app.action.STOP"
+        const val ACTION_SEND_COMMAND = "com.cryptmc.app.action.SEND_COMMAND"
         const val EXTRA_CONFIG = "extra_config"
+        const val EXTRA_COMMAND = "extra_command"
         private const val CHANNEL_ID = "cryptmc_server_channel"
         private const val NOTIFICATION_ID = 1001
     }

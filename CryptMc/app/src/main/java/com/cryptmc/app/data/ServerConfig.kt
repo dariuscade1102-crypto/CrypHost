@@ -36,7 +36,7 @@ data class ScheduleConfig(
     val restartFrequency: RestartFrequency = RestartFrequency.OFF,
     val restartHourOfDay: Int = 4,           // 0-23, local time; used by DAILY
     val restartWarningSeconds: Int = 60      // broadcast countdown before kicking players
-)
+) : java.io.Serializable
 
 /** Optional chat relay to Discord — see integrations/DiscordBridge.kt. */
 data class DiscordBridgeConfig(
@@ -45,12 +45,18 @@ data class DiscordBridgeConfig(
     val relayJoinLeave: Boolean = true,
     val relayChat: Boolean = true,
     val relayServerStartStop: Boolean = true
-)
+) : java.io.Serializable
 
 /**
  * Everything a server's settings tabs can edit. Mirrors the six-tab layout
  * of the reference app (General / Software / World / Mods & Plugins /
  * Performance / Network) so each tab is just a view over one slice of this.
+ *
+ * Implements Serializable so it can travel in an Intent extra to
+ * ServerForegroundService (ACTION_START/EXTRA_CONFIG) — it wasn't before,
+ * which meant the only call site that ever tried to send one there
+ * (`intent.getSerializableExtra(EXTRA_CONFIG) as? ServerConfig`) could
+ * never actually have been fed a real ServerConfig.
  */
 data class ServerConfig(
     val id: String,
@@ -105,7 +111,7 @@ data class ServerConfig(
     val discordBridge: DiscordBridgeConfig = DiscordBridgeConfig(),
 
     val workingDir: String
-)
+) : java.io.Serializable
 
 /** One completed or in-progress backup, shown in the Backups tab list. */
 data class BackupRecord(
@@ -124,7 +130,7 @@ data class InstalledAddon(
     val name: String,
     val fileName: String,
     val modrinthProjectId: String? = null
-)
+) : java.io.Serializable
 
 /** Live runtime state — separate from the saved config above. */
 data class ServerRuntimeStatus(

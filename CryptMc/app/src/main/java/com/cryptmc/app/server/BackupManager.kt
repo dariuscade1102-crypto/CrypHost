@@ -86,9 +86,20 @@ object BackupManager {
         withContext(Dispatchers.IO) {
             runCatching {
                 val target = File(workingDir)
+                val targetCanonicalPath = target.canonicalPath
                 java.util.zip.ZipFile(record.filePath).use { zip ->
                     zip.entries().asSequence().forEach { entry ->
                         val outFile = File(target, entry.name)
+                        // "Zip Slip" guard: an entry name like "../../evil" would
+                        // otherwise resolve outside targetDir and let a crafted
+                        // zip overwrite arbitrary app files. Every entry must
+                        // canonicalize to somewhere inside targetDir.
+                        val outCanonicalPath = outFile.canonicalPath
+                        require(
+                            outCanonicalPath == targetCanonicalPath ||
+                                outCanonicalPath.startsWith(targetCanonicalPath + File.separator)
+                        ) { "Backup entry escapes target directory: ${entry.name}" }
+
                         if (entry.isDirectory) {
                             outFile.mkdirs()
                         } else {

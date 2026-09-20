@@ -40,7 +40,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "CryptMc"
-            packageVersion = "1.0.0"
+            packageVersion = "0.1.0"
             description = "Local Minecraft server host — desktop companion"
         }
     }

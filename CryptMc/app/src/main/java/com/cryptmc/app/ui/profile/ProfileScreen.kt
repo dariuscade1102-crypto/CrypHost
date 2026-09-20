@@ -11,22 +11,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.cryptmc.app.BuildConfig
 import com.cryptmc.app.auth.AuthResult
 import com.cryptmc.app.auth.GoogleAuthManager
 import kotlinx.coroutines.launch
 
-// Replace with the Web client ID from Google Cloud Console for this app's
-// project (APIs & Services > Credentials). This is a placeholder — sign-in
-// will fail with an auth error until it's swapped for a real one.
-private const val GOOGLE_WEB_CLIENT_ID = "YOUR_WEB_CLIENT_ID.apps.googleusercontent.com"
-
 @Composable
 fun ProfileScreen(showAccountSection: Boolean, onOpenAiAssistant: () -> Unit = {}) {
     val context = LocalContext.current
-    val authManager = remember { GoogleAuthManager(context, GOOGLE_WEB_CLIENT_ID) }
+    val authManager = remember { GoogleAuthManager(context, BuildConfig.GOOGLE_WEB_CLIENT_ID) }
     val user by authManager.currentUser.collectAsState()
     val scope = rememberCoroutineScope()
     var signInError by remember { mutableStateOf<String?>(null) }
+    // Was previously an opaque Play Services error ("[16] Account reauth
+    // failed") when CRYPTMC_GOOGLE_WEB_CLIENT_ID hadn't been set — this
+    // catches that specific misconfiguration and says so plainly instead.
+    val clientIdConfigured = BuildConfig.GOOGLE_WEB_CLIENT_ID != "UNSET"
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Text("Profile", style = MaterialTheme.typography.headlineMedium) }
@@ -36,6 +36,11 @@ fun ProfileScreen(showAccountSection: Boolean, onOpenAiAssistant: () -> Unit = {
                 if (user == null) {
                     SignedOutCard(
                         onSignIn = {
+                            if (!clientIdConfigured) {
+                                signInError = "Sign-in isn't set up yet (missing Google Web client ID) — set " +
+                                    "CRYPTMC_GOOGLE_WEB_CLIENT_ID in gradle.properties, see GoogleAuthManager.kt."
+                                return@SignedOutCard
+                            }
                             scope.launch {
                                 when (val result = authManager.signIn(filterByAuthorizedAccounts = false)) {
                                     is AuthResult.Success -> signInError = null
@@ -96,7 +101,10 @@ fun ProfileScreen(showAccountSection: Boolean, onOpenAiAssistant: () -> Unit = {
 
         item {
             Text(
-                "CryptMc.com v1.8.9",
+                // Was a hardcoded "v1.8.9" that didn't match the real
+                // versionName in build.gradle.kts (0.1.0 at time of writing)
+                // — reads the real build version now so it can't drift.
+                "CryptMc.com v${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),

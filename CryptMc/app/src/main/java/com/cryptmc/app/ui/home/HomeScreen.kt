@@ -1,5 +1,6 @@
 package com.cryptmc.app.ui.home
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,11 +12,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.cryptmc.app.data.ServerConfig
 import com.cryptmc.app.data.ServerRepository
 import com.cryptmc.app.data.ServerRuntimeStatus
 import com.cryptmc.app.data.TunnelMode
+import com.cryptmc.app.service.ServerForegroundService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,10 +28,19 @@ fun HomeScreen(
     onOpenAdminDashboard: () -> Unit,
     onOpenAiAssistant: () -> Unit
 ) {
+    val context = LocalContext.current
     val servers by ServerRepository.servers.collectAsState()
     val statuses by ServerRepository.statuses.collectAsState()
     var tunnelMenuExpanded by remember { mutableStateOf(false) }
     var selectedTunnel by remember { mutableStateOf(TunnelMode.LOCAL_ONLY) }
+    // Delete is destructive (world files, backups, config) and was previously a
+    // single un-confirmed tap — this holds the server pending confirmation.
+    var pendingDelete by remember { mutableStateOf<ServerConfig?>(null) }
+    // ServerProcessManager (inside ServerForegroundService) only ever runs
+    // ONE server at a time — see its class doc — so once something is
+    // running, every other card's Start needs to be disabled rather than
+    // silently crashing the service when tapped.
+    val anyRunning = statuses.values.any { it.running }
 
     Scaffold(
         topBar = {
@@ -79,18 +91,57 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(servers, key = { it.id }) { config ->
+                    val status = statuses[config.id] ?: ServerRuntimeStatus()
                     ServerCard(
                         config = config,
-                        status = statuses[config.id] ?: ServerRuntimeStatus(),
-                        onStart = { onOpenConsole(config.id) },
+                        status = status,
+                        canStart = !anyRunning || status.running,
+                        onStart = {
+                            if (!status.running) {
+                                // This used to be onStart = { onOpenConsole(config.id) }
+                                // — tapping "Start" never actually started
+                                // anything, it just navigated to a console
+                                // with nothing running behind it.
+                                val intent = Intent(context, ServerForegroundService::class.java)
+                                    .setAction(ServerForegroundService.ACTION_START)
+                                    .putExtra(ServerForegroundService.EXTRA_CONFIG, config)
+                                context.startForegroundService(intent)
+                            }
+                            onOpenConsole(config.id)
+                        },
+                        onStop = {
+                            val intent = Intent(context, ServerForegroundService::class.java)
+                                .setAction(ServerForegroundService.ACTION_STOP)
+                            context.startService(intent)
+                        },
                         onOpenMap = { /* opens squaremap web view if liveWorldMapEnabled */ },
                         onOpenFiles = { /* deep-links into FilesScreen scoped to this server */ },
                         onOpenSettings = { onOpenSettings(config.id) },
-                        onDelete = { ServerRepository.delete(config.id) }
+                        onDelete = { pendingDelete = config }
                     )
                 }
             }
         }
+    }
+
+    pendingDelete?.let { config ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+            title = { Text("Delete \"${config.name}\"?") },
+            text = { Text("This removes the server from CryptMc. This can't be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        ServerRepository.delete(config.id)
+                        pendingDelete = null
+                    }
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 
@@ -98,7 +149,9 @@ fun HomeScreen(
 private fun ServerCard(
     config: ServerConfig,
     status: ServerRuntimeStatus,
+    canStart: Boolean,
     onStart: () -> Unit,
+    onStop: () -> Unit,
     onOpenMap: () -> Unit,
     onOpenFiles: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -144,10 +197,19 @@ private fun ServerCard(
             Spacer(Modifier.height(12.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onStart, modifier = Modifier.weight(1f)) {
-                    Icon(if (status.running) Icons.Filled.Stop else Icons.Filled.PlayArrow, contentDescription = null)
+                Button(onClick = onStart, modifier = Modifier.weight(1f), enabled = canStart) {
+                    // Previously used Icons.Filled.Stop here paired with the
+                    // text "Open Console" — an icon that promises stopping
+                    // the server next to a label that just navigates away.
+                    // Visibility (view) matches what the button really does.
+                    Icon(if (status.running) Icons.Filled.Visibility else Icons.Filled.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text(if (status.running) "Open Console" else "Start")
+                }
+                if (status.running) {
+                    IconButton(onClick = onStop) {
+                        Icon(Icons.Filled.Stop, contentDescription = "Stop server")
+                    }
                 }
                 IconButton(onClick = onOpenMap, enabled = config.liveWorldMapEnabled) {
                     Icon(Icons.Outlined.Map, contentDescription = "World map")

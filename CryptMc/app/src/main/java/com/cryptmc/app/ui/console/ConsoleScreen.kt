@@ -69,9 +69,9 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
     val status = statuses[serverId]
 
     val context = LocalContext.current as? androidx.activity.ComponentActivity
-    val isWideLayout = context?.let {
-        calculateWindowSizeClass(it).widthSizeClass != WindowWidthSizeClass.Compact
-    } ?: false
+    val isWideLayout = remember(context) {
+        context?.let { calculateWindowSizeClass(it).widthSizeClass != WindowWidthSizeClass.Compact } ?: false
+    }
 
     var commandInput by remember { mutableStateOf("") }
     // Demo/placeholder log lines — real output comes from binding to
@@ -150,7 +150,8 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
                 }
                 if (players.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
-                    Text("Online players (${players.size})", style = MaterialTheme.typography.titleSmall)
+                    // PlayerRail renders its own "Online players (n)" header below —
+                    // don't duplicate it here (this line used to print it twice).
                     PlayerRail(
                         players = players,
                         modifier = Modifier.heightIn(max = 220.dp),

@@ -101,10 +101,37 @@ object ServerScheduler {
         override suspend fun doWork(): Result {
             val serverId = inputData.getString(KEY_SERVER_ID) ?: return Result.failure()
             val config = ServerRepository.get(serverId) ?: return Result.failure()
-            // In production: ServerProcessManager.sendCommand(serverId, "say Restarting in Ns"),
-            // delay(schedule.restartWarningSeconds * 1000L), then stop() -> start().
-            // Left as a hook here since ServerProcessManager's process handle isn't
-            // reachable from a Worker without a dependency-injected singleton reference.
+            // Was previously just `return Result.success()` — WorkManager
+            // would faithfully fire this every N hours and nothing would
+            // happen. ServerForegroundService's ACTION_STOP/ACTION_START
+            // pair (the same contract HomeScreen's Start/Stop buttons use)
+            // is reachable from here without a DI'd process handle, unlike
+            // ServerProcessManager directly.
+            val isRunning = ServerRepository.statuses.value[serverId]?.running == true
+            if (!isRunning) return Result.success()
+
+            val context = applicationContext
+            val serviceClass = com.cryptmc.app.service.ServerForegroundService::class.java
+
+            context.startService(
+                android.content.Intent(context, serviceClass)
+                    .setAction(com.cryptmc.app.service.ServerForegroundService.ACTION_SEND_COMMAND)
+                    .putExtra(
+                        com.cryptmc.app.service.ServerForegroundService.EXTRA_COMMAND,
+                        "say Restarting in ${config.schedule.restartWarningSeconds}s"
+                    )
+            )
+            kotlinx.coroutines.delay(config.schedule.restartWarningSeconds * 1000L)
+
+            context.startService(
+                android.content.Intent(context, serviceClass)
+                    .setAction(com.cryptmc.app.service.ServerForegroundService.ACTION_STOP)
+            )
+            context.startForegroundService(
+                android.content.Intent(context, serviceClass)
+                    .setAction(com.cryptmc.app.service.ServerForegroundService.ACTION_START)
+                    .putExtra(com.cryptmc.app.service.ServerForegroundService.EXTRA_CONFIG, config)
+            )
             return Result.success()
         }
     }

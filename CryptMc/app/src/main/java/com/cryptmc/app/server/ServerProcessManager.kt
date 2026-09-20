@@ -12,6 +12,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Owns the lifecycle of exactly one running server process. Runs inside
@@ -26,6 +27,7 @@ class ServerProcessManager(
 ) {
     private var process: Process? = null
     private var stdin: OutputStreamWriter? = null
+    private val stopping = AtomicBoolean(false)
 
     private val _consoleLines = MutableSharedFlow<String>(replay = 500)
     val consoleLines = _consoleLines.asSharedFlow()
@@ -48,38 +50,52 @@ class ServerProcessManager(
         val proc = builder.start()
         process = proc
         stdin = OutputStreamWriter(proc.outputStream)
+        stopping.set(false)
         _isRunning.value = true
 
         // Pump stdout -> shared flow the dashboard console collects from
         scope.launch(Dispatchers.IO) {
-            BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    _consoleLines.emit(line ?: continue)
+            try {
+                BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        _consoleLines.emit(line ?: continue)
+                    }
+                }
+            } finally {
+                if (!stopping.get()) {
+                    _isRunning.value = false
                 }
             }
-            _isRunning.value = false
         }
 
         // Watch for the process dying on its own (crash, OOM-kill, `stop`)
         scope.launch(Dispatchers.IO) {
             val exitCode = proc.waitFor()
-            _isRunning.value = false
-            _consoleLines.emit("[CryptMc] Server process exited with code $exitCode")
+            if (!stopping.get()) {
+                _isRunning.value = false
+                _consoleLines.emit("[CryptMc] Server process exited with code $exitCode")
+            }
         }
     }
 
     /** Sends a raw command to the server console, e.g. "kick Steve griefing" */
     fun sendCommand(command: String) {
         val writer = stdin ?: return
-        writer.write("$command\n")
-        writer.flush()
+        try {
+            writer.write("$command\n")
+            writer.flush()
+        } catch (e: Exception) {
+            // Process may have already died
+        }
     }
 
     /** Graceful shutdown via the server's own "stop" command; falls back to
      *  destroy() if it hasn't exited within [gracePeriodMs]. */
     fun stop(gracePeriodMs: Long = 15_000) {
         val proc = process ?: return
+        if (!stopping.compareAndSet(false, true)) return // already stopping
+
         sendCommand("stop")
         scope.launch(Dispatchers.IO) {
             val exited = proc.waitFor(gracePeriodMs, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -88,6 +104,8 @@ class ServerProcessManager(
             }
             process = null
             stdin = null
+            _isRunning.value = false
+            _consoleLines.emit("[CryptMc] Server stopped")
         }
     }
 
@@ -97,9 +115,12 @@ class ServerProcessManager(
             add(java)
             add("-Xms${config.minRamMb}M")
             add("-Xmx${config.maxRamMb}M")
-            addAll(config.javaFlags.split(Regex("\\s+")).filter { it.isNotBlank() })
+            // Prefer javaFlags if present, otherwise extraJvmArgs for compatibility
+            val flags = config.javaFlags.takeIf { it.isNotBlank() }?.split(" ")?.filter { it.isNotBlank() }
+                ?: config.extraJvmArgs
+            addAll(flags)
             add("-jar")
-            add(config.jarPath ?: error("No server JAR configured"))
+            add(config.jarPath ?: error("No jar path set"))
             add("nogui")
         }
     }

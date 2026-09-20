@@ -86,9 +86,18 @@ class ServerForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Server idle"))
-        wakeLock.acquire(/* no timeout — released explicitly in onDestroy */)
+        if (!wakeLock.isHeld) {
+            wakeLock.acquire(/* no timeout — released explicitly in onDestroy */)
+        }
 
-        val config = intent?.getSerializableExtra(EXTRA_CONFIG) as? ServerConfig
+        // Modern API to avoid deprecation + ClassCast issues on newer Android
+        val config = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getSerializableExtra(EXTRA_CONFIG, ServerConfig::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getSerializableExtra(EXTRA_CONFIG) as? ServerConfig
+        }
+
         if (intent?.action == ACTION_START && config != null) {
             if (processManager.isRunning.value) {
                 // ServerProcessManager.start() throws if a process is

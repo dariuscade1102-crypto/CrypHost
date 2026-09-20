@@ -42,7 +42,7 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.CryptMc"
         android:usesCleartextTraffic="false"
-        xmlns:tools="http://schemas.android.com/tools">
+        tools:targetApi="34">
 
         <activity
             android:name=".MainActivity"
@@ -56,11 +56,15 @@
 
         <!-- foregroundServiceType="specialUse" is the correct Android 14
              category for "runs a user-hosted server process"; Play policy
-             requires a declared reason string, set in the service. -->
+             requires a declared reason string via property. -->
         <service
             android:name=".service.ServerForegroundService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs a user-hosted Minecraft server process on-device with live console and tunnel." />
+        </service>
 
     </application>
 </manifest>

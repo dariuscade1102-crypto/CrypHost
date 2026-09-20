@@ -12,7 +12,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -124,7 +126,7 @@ private fun AppBottomBar(navController: androidx.navigation.NavHostController) {
 
     NavigationBar {
         bottomBarDestinations.forEach { dest ->
-            val selected = currentRoute?.hierarchy?.any { destination -> destination.route == dest.route } == true
+            val selected = currentRoute?.hierarchy?.any { destination: NavDestination -> destination.route == dest.route } == true
             NavigationBarItem(
                 selected = selected,
                 onClick = {

@@ -69,9 +69,9 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
     val status = statuses[serverId]
 
     val context = LocalContext.current as? androidx.activity.ComponentActivity
-    val isWideLayout = remember(context) {
-        context?.let { calculateWindowSizeClass(it).widthSizeClass != WindowWidthSizeClass.Compact } ?: false
-    }
+    val isWideLayout = context?.let {
+        calculateWindowSizeClass(it).widthSizeClass != WindowWidthSizeClass.Compact
+    } ?: false
 
     var commandInput by remember { mutableStateOf("") }
     // Demo/placeholder log lines — real output comes from binding to

@@ -37,7 +37,9 @@ class ServerProcessManager(
 
     fun start(config: ServerConfig) {
         check(!_isRunning.value) { "Server already running" }
-        require(jreProvisioner.isProvisioned()) { "JRE not provisioned yet" }
+        require(jreProvisioner.isProvisioned()) {
+            "JRE not provisioned yet. Add jre-arm64.zip to app/src/main/assets/ — see SETUP.md for free steps."
+        }
 
         val workDir = File(config.workingDir).apply { mkdirs() }
         ensureEula(workDir, config.eulaAccepted)

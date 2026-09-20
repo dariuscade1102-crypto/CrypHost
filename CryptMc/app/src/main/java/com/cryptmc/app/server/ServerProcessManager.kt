@@ -115,10 +115,10 @@ class ServerProcessManager(
             add(java)
             add("-Xms${config.minRamMb}M")
             add("-Xmx${config.maxRamMb}M")
-            // Prefer javaFlags if present, otherwise extraJvmArgs for compatibility
-            val flags = config.javaFlags.takeIf { it.isNotBlank() }?.split(" ")?.filter { it.isNotBlank() }
-                ?: config.extraJvmArgs
-            addAll(flags)
+            // Split the javaFlags string into individual JVM args
+            if (config.javaFlags.isNotBlank()) {
+                addAll(config.javaFlags.split(" ").filter { it.isNotBlank() })
+            }
             add("-jar")
             add(config.jarPath ?: error("No jar path set"))
             add("nogui")

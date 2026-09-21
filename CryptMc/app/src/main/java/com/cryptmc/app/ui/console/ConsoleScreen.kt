@@ -77,22 +77,18 @@ fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}
     } ?: false
 
     var commandInput by remember { mutableStateOf("") }
-    // Demo/placeholder log lines — real output comes from binding to
-    // ServerForegroundService.processManager.consoleLines, as wired in
-    // DashboardViewModel from the earlier scaffold.
-    val consoleLines = remember {
-        mutableStateListOf(
-            "16:11:32 INFO [SYSTEM] jar_server exited at 2026-09-14 14:01:48: stopped by the app (RSS 1295MB, PSS 0MB)",
-            "16:11:32 INFO There are 2 of a max of 10 players online: Notch, Steve"
-        )
-    }
+    val consoleLines = remember { mutableStateListOf<String>() }
 
     var players by remember { mutableStateOf(parsePlayerList(consoleLines.last()) ?: emptyList()) }
 
-    // Keep the roster fresh by re-parsing whenever a new /list response
-    // arrives, and by nudging the server for one periodically — this is a
-    // client-side timer only; wire the actual "list" send through
-    // ServerProcessManager.sendCommand once bound to the real service.
+    LaunchedEffect(serverId) {
+        ServerForegroundService.consoleLinesFromUi().collect { line ->
+            consoleLines.add(line)
+            while (consoleLines.size > 500) consoleLines.removeAt(0)
+            parsePlayerList(line)?.let { players = it }
+        }
+    }
+
     LaunchedEffect(consoleLines.size) {
         consoleLines.lastOrNull()?.let { line ->
             parsePlayerList(line)?.let { players = it }

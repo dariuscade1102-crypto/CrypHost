@@ -19,6 +19,8 @@ import com.cryptmc.app.tunnel.TunnelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Requirement #6: keeps the server (and tunnel agent) alive independent of
@@ -184,6 +186,8 @@ class ServerForegroundService : Service() {
             service.processManager.sendCommand(command)
             return true
         }
+
+        fun consoleLinesFromUi(): Flow<String> = active?.processManager?.consoleLines ?: emptyFlow()
 
         const val ACTION_START = "com.cryptmc.app.action.START"
         const val ACTION_STOP = "com.cryptmc.app.action.STOP"

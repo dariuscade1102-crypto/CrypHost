@@ -122,7 +122,7 @@ data class BackupRecord(
     val createdAtEpochMs: Long,
     val sizeBytes: Long,
     val trigger: BackupTrigger
-)
+) : java.io.Serializable
 
 enum class BackupTrigger { MANUAL, SCHEDULED, PRE_UPDATE }
 

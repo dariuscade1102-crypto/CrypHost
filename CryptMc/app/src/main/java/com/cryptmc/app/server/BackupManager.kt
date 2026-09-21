@@ -1,5 +1,7 @@
 package com.cryptmc.app.server
 
+import android.content.Context
+import android.util.Base64
 import com.cryptmc.app.data.BackupRecord
 import com.cryptmc.app.data.BackupTrigger
 import com.cryptmc.app.data.ServerConfig
@@ -8,133 +10,110 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
-/**
- * Zips a server's world (and optionally plugins/mods, config files) into
- * `<workingDir>/backups/`, and prunes old ones per ScheduleConfig's
- * retention count. Manual backups (Backups tab "Back up now" button) and
- * scheduled ones (ServerScheduler) both go through [createBackup].
- *
- * In-memory index like ServerRepository/AdminRepository elsewhere in this
- * scaffold — swap for a Room table keyed by serverId if you need the list
- * to survive a process death (the zip files on disk already do).
- */
+/** Creates, restores, indexes, and prunes local server backups. */
 object BackupManager {
-
+    private const val PREFS = "cryptmc_backups"
+    private const val RECORDS_KEY = "records"
     private val _backups = MutableStateFlow<List<BackupRecord>>(emptyList())
     val backups: StateFlow<List<BackupRecord>> = _backups.asStateFlow()
+    private var prefs: android.content.SharedPreferences? = null
+    @Volatile private var initialized = false
+
+    fun initialize(context: Context) {
+        if (initialized) return
+        synchronized(this) {
+            if (initialized) return
+            prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            _backups.value = decode<List<BackupRecord>>(prefs?.getString(RECORDS_KEY, null))
+                .orEmpty().filter { File(it.filePath).isFile }
+            initialized = true
+            persist()
+        }
+    }
 
     fun backupsFor(serverId: String): List<BackupRecord> =
-        _backups.value.filter { it.serverId == serverId }.sortedByDescending { it.createdAtEpochMs }
+        _backups.value.filter { it.serverId == serverId && File(it.filePath).isFile }
+            .sortedByDescending { it.createdAtEpochMs }
 
-    /**
-     * Must be called with the server STOPPED (or at minimum with `save-off` +
-     * `save-all` issued via RCON/console first) — zipping a live world folder
-     * risks a corrupt region file if a chunk is mid-write. Wire that check
-     * into ServerScheduler / the tab's "Back up now" handler, not here, since
-     * this class has no reference to ServerProcessManager's running state.
-     */
-    suspend fun createBackup(
-        config: ServerConfig,
-        includePlugins: Boolean,
-        trigger: BackupTrigger
-    ): Result<BackupRecord> = withContext(Dispatchers.IO) {
+    suspend fun createBackup(config: ServerConfig, includePlugins: Boolean, trigger: BackupTrigger): Result<BackupRecord> = withContext(Dispatchers.IO) {
         runCatching {
             val workingDir = File(config.workingDir)
             val worldDir = File(workingDir, "world")
-            require(worldDir.exists()) { "No world folder found at ${worldDir.path}" }
-
+            require(worldDir.isDirectory) { "No world folder found at ${worldDir.path}" }
             val backupsDir = File(workingDir, "backups").apply { mkdirs() }
-            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd-HHmm").format(java.util.Date())
-            val fileName = "${config.name.lowercase().replace(Regex("\\s+"), "-")}-$timestamp.zip"
-            val outFile = File(backupsDir, fileName)
-
+            val stamp = SimpleDateFormat("yyyy-MM-dd-HHmmss", Locale.US).format(Date())
+            val slug = config.name.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            val outFile = File(backupsDir, "${slug.ifBlank { "server" }}-$stamp-${UUID.randomUUID().toString().take(8)}.zip")
             ZipOutputStream(outFile.outputStream().buffered()).use { zip ->
                 addDirToZip(zip, worldDir, "world")
-                listOf("world_nether", "world_the_end").forEach { name ->
-                    File(workingDir, name).takeIf { it.exists() }?.let { addDirToZip(zip, it, name) }
-                }
-                File(workingDir, "server.properties").takeIf { it.exists() }
-                    ?.let { addFileToZip(zip, it, "server.properties") }
-                if (includePlugins) {
-                    listOf("plugins", "mods").forEach { name ->
-                        File(workingDir, name).takeIf { it.exists() }?.let { addDirToZip(zip, it, name) }
-                    }
-                }
+                listOf("world_nether", "world_the_end").forEach { name -> File(workingDir, name).takeIf { it.isDirectory }?.let { addDirToZip(zip, it, name) } }
+                File(workingDir, "server.properties").takeIf { it.isFile }?.let { addFileToZip(zip, it, "server.properties") }
+                if (includePlugins) listOf("plugins", "mods").forEach { name -> File(workingDir, name).takeIf { it.isDirectory }?.let { addDirToZip(zip, it, name) } }
             }
-
-            val record = BackupRecord(
-                id = UUID.randomUUID().toString(),
-                serverId = config.id,
-                fileName = fileName,
-                filePath = outFile.path,
-                createdAtEpochMs = System.currentTimeMillis(),
-                sizeBytes = outFile.length(),
-                trigger = trigger
-            )
-            _backups.value = _backups.value + record
+            val record = BackupRecord(UUID.randomUUID().toString(), config.id, outFile.name, outFile.absolutePath, System.currentTimeMillis(), outFile.length(), trigger)
+            _backups.value = _backups.value.filterNot { it.filePath == record.filePath } + record
             pruneOldBackups(config.id, config.schedule.backupRetentionCount)
+            persist()
             record
         }
     }
 
-    suspend fun restoreBackup(record: BackupRecord, workingDir: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val target = File(workingDir)
-                val targetCanonicalPath = target.canonicalPath
-                java.util.zip.ZipFile(record.filePath).use { zip ->
-                    zip.entries().asSequence().forEach { entry ->
-                        val outFile = File(target, entry.name)
-                        // "Zip Slip" guard: an entry name like "../../evil" would
-                        // otherwise resolve outside targetDir and let a crafted
-                        // zip overwrite arbitrary app files. Every entry must
-                        // canonicalize to somewhere inside targetDir.
-                        val outCanonicalPath = outFile.canonicalPath
-                        require(
-                            outCanonicalPath == targetCanonicalPath ||
-                                outCanonicalPath.startsWith(targetCanonicalPath + File.separator)
-                        ) { "Backup entry escapes target directory: ${entry.name}" }
-
-                        if (entry.isDirectory) {
-                            outFile.mkdirs()
-                        } else {
-                            outFile.parentFile?.mkdirs()
-                            zip.getInputStream(entry).use { input ->
-                                outFile.outputStream().use { output -> input.copyTo(output) }
-                            }
-                        }
+    suspend fun restoreBackup(record: BackupRecord, workingDir: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(File(record.filePath).isFile) { "Backup file is missing: ${record.filePath}" }
+            val target = File(workingDir)
+            val root = target.canonicalFile
+            ZipFile(record.filePath).use { zip ->
+                zip.entries().asSequence().forEach { entry ->
+                    val out = File(root, entry.name).canonicalFile
+                    require(out == root || out.path.startsWith(root.path + File.separator)) { "Backup entry escapes target: ${entry.name}" }
+                    if (entry.isDirectory) out.mkdirs() else {
+                        out.parentFile?.mkdirs()
+                        zip.getInputStream(entry).use { input -> out.outputStream().use { output -> input.copyTo(output) } }
                     }
                 }
             }
         }
+    }
 
     fun deleteBackup(record: BackupRecord) {
         File(record.filePath).delete()
         _backups.value = _backups.value.filterNot { it.id == record.id }
+        persist()
     }
 
-    /** Keeps the newest [keep] backups for a server (scheduled ones only — MANUAL/PRE_UPDATE are exempt). */
     private fun pruneOldBackups(serverId: String, keep: Int) {
-        if (keep <= 0) return
-        val scheduled = backupsFor(serverId).filter { it.trigger == BackupTrigger.SCHEDULED }
-        scheduled.drop(keep).forEach { deleteBackup(it) }
+        if (keep < 1) return
+        backupsFor(serverId).filter { it.trigger == BackupTrigger.SCHEDULED }.drop(keep).forEach { deleteBackup(it) }
     }
 
-    private fun addDirToZip(zip: ZipOutputStream, dir: File, entryPrefix: String) {
-        dir.walkTopDown().filter { it.isFile }.forEach { file ->
-            val relative = "$entryPrefix/${file.relativeTo(dir).path.replace(File.separatorChar, '/')}"
-            addFileToZip(zip, file, relative)
-        }
+    private fun addDirToZip(zip: ZipOutputStream, dir: File, prefix: String) {
+        dir.walkTopDown().filter { it.isFile }.forEach { file -> addFileToZip(zip, file, "$prefix/${file.relativeTo(dir).path.replace(File.separatorChar, '/')}") }
     }
-
-    private fun addFileToZip(zip: ZipOutputStream, file: File, entryName: String) {
-        zip.putNextEntry(ZipEntry(entryName))
-        file.inputStream().use { it.copyTo(zip) }
-        zip.closeEntry()
+    private fun addFileToZip(zip: ZipOutputStream, file: File, name: String) {
+        zip.putNextEntry(ZipEntry(name)); file.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
     }
+    private fun persist() { prefs?.edit()?.putString(RECORDS_KEY, encode(_backups.value))?.apply() }
+    private fun encode(value: Any): String = runCatching {
+        val bytes = ByteArrayOutputStream(); ObjectOutputStream(bytes).use { it.writeObject(value) }
+        Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+    }.getOrDefault("")
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> decode(value: String?): T? = runCatching {
+        if (value.isNullOrBlank()) return null
+        ObjectInputStream(ByteArrayInputStream(Base64.decode(value, Base64.DEFAULT))).use { it.readObject() as T }
+    }.getOrNull()
 }

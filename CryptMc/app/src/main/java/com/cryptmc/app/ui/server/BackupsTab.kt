@@ -1,5 +1,7 @@
 package com.cryptmc.app.ui.server
 
+import android.widget.Toast
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import com.cryptmc.app.data.BackupRecord
 import com.cryptmc.app.data.BackupTrigger
 import com.cryptmc.app.data.ServerConfig
@@ -32,11 +35,12 @@ fun BackupsTab(
     backups: List<BackupRecord>,
     isServerRunning: Boolean,
     onChange: (ServerConfig) -> Unit,
-    onBackupNow: suspend () -> Unit,
-    onRestore: (BackupRecord) -> Unit,
+    onBackupNow: suspend () -> Result<BackupRecord>,
+    onRestore: suspend (BackupRecord) -> Result<Unit>,
     onDelete: (BackupRecord) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var backingUp by remember { mutableStateOf(false) }
     var confirmRestore by remember { mutableStateOf<BackupRecord?>(null) }
     val schedule = config.schedule
@@ -62,7 +66,8 @@ fun BackupsTab(
                     onClick = {
                         backingUp = true
                         scope.launch {
-                            onBackupNow()
+                            val result = onBackupNow()
+                            Toast.makeText(context, result.fold({ "Backup created: ${it.fileName}" }, { "Backup failed: ${it.message}" }), Toast.LENGTH_LONG).show()
                             backingUp = false
                         }
                     },
@@ -133,8 +138,9 @@ fun BackupsTab(
             items(backups, key = { it.id }) { record ->
                 BackupRow(
                     record = record,
+                    restoreEnabled = !isServerRunning,
                     onRestore = { confirmRestore = record },
-                    onDelete = { onDelete(record) }
+                    onDelete = { onDelete(record); Toast.makeText(context, "Backup deleted", Toast.LENGTH_SHORT).show() }
                 )
             }
         }
@@ -151,7 +157,13 @@ fun BackupsTab(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { onRestore(record); confirmRestore = null }) { Text("Restore") }
+                TextButton(enabled = !isServerRunning, onClick = {
+                    scope.launch {
+                        val result = onRestore(record)
+                        Toast.makeText(context, result.fold({ "Backup restored" }, { "Restore failed: ${it.message}" }), Toast.LENGTH_LONG).show()
+                        confirmRestore = null
+                    }
+                }) { Text("Restore") }
             },
             dismissButton = { TextButton(onClick = { confirmRestore = null }) { Text("Cancel") } }
         )
@@ -159,7 +171,7 @@ fun BackupsTab(
 }
 
 @Composable
-private fun BackupRow(record: BackupRecord, onRestore: () -> Unit, onDelete: () -> Unit) {
+private fun BackupRow(record: BackupRecord, restoreEnabled: Boolean, onRestore: () -> Unit, onDelete: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
             modifier = Modifier.padding(12.dp).fillMaxWidth(),
@@ -180,7 +192,7 @@ private fun BackupRow(record: BackupRecord, onRestore: () -> Unit, onDelete: () 
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onRestore) { Icon(Icons.Filled.Restore, contentDescription = "Restore") }
+            IconButton(enabled = restoreEnabled, onClick = onRestore) { Icon(Icons.Filled.Restore, contentDescription = "Restore") }
             IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
         }
     }

@@ -15,7 +15,6 @@ import com.cryptmc.app.data.ServerRepository
 import com.cryptmc.app.server.BackupManager
 import com.cryptmc.app.server.ServerScheduler
 import androidx.compose.runtime.collectAsState
-import kotlinx.coroutines.launch
 
 private enum class SettingsTab(val label: String) {
     GENERAL("General"), SOFTWARE("Software"), WORLD("World"),
@@ -35,7 +34,6 @@ fun ServerSettingsScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Un
     }
     var tab by remember { mutableStateOf(SettingsTab.GENERAL) }
     var draft by remember(config.id) { mutableStateOf(config) }
-    val restoreScope = rememberCoroutineScope()
 
     fun applyChange(updated: ServerConfig) {
         // Backup/restart cadence takes effect immediately rather than waiting for
@@ -95,10 +93,7 @@ fun ServerSettingsScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Un
                             BackupManager.createBackup(draft, draft.schedule.backupIncludePlugins, BackupTrigger.MANUAL)
                         },
                         onRestore = { record ->
-                            restoreScope.launch { BackupManager.restoreBackup(record, draft.workingDir) }
-                            // Fire-and-forget from the UI layer here is intentional for this scaffold;
-                            // a production build should surface success/failure via a Snackbar and
-                            // should refuse to run while statuses[serverId]?.running == true.
+                            BackupManager.restoreBackup(record, draft.workingDir)
                         },
                         onDelete = { record -> BackupManager.deleteBackup(record) }
                     )

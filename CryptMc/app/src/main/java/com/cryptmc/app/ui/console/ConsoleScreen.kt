@@ -1,26 +1,33 @@
 package com.cryptmc.app.ui.console
 
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
-import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -28,257 +35,91 @@ import androidx.compose.ui.unit.dp
 import com.cryptmc.app.data.ServerRepository
 import com.cryptmc.app.service.ServerForegroundService
 
-private data class QuickCommand(val label: String, val icon: ImageVector, val command: String, val destructive: Boolean = false)
-
-private val quickCommands = listOf(
-    QuickCommand("/stop", Icons.Filled.Close, "stop", destructive = true),
-    QuickCommand("/help", Icons.Filled.Description, "help"),
-    QuickCommand("/list", Icons.Filled.List, "list"),
-    QuickCommand("/op", Icons.Filled.Shield, "op "),
-    QuickCommand("/kick", Icons.AutoMirrored.Filled.Login, "kick ")
-)
-
-/**
- * A vanilla/Paper `/list` response looks like:
- *   "There are 2 of a max of 10 players online: Notch, Steve"
- * This is the only player-roster source these servers expose without a
- * plugin — no separate management API exists, so the player rail below is
- * built by parsing this line out of the console stream rather than querying
- * anything structured. Re-issue `/list` on an interval (see the
- * LaunchedEffect below) to keep the rail from going stale between joins.
- */
-private val LIST_RESPONSE_REGEX = Regex("""online:\s*(.+)$""")
-
-private fun parsePlayerList(line: String): List<String>? {
-    val match = LIST_RESPONSE_REGEX.find(line) ?: return null
-    val namesPart = match.groupValues[1].trim()
-    if (namesPart.isEmpty()) return emptyList()
-    return namesPart.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-}
-
-/**
- * "Web Console" opens a browser tab pointed at the local dashboard server
- * this app can optionally run (e.g. Ktor on 127.0.0.1:PORT), letting the
- * host manage from a desktop browser on the same LAN — not shown here since
- * it's a separate embedded HTTP server component, but ServerProcessManager's
- * consoleLines flow is exactly what you'd pipe over a WebSocket to power it.
- */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
-fun ConsoleScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Unit = {}) {
+fun ConsoleScreen(serverId: String, onBack: () -> Unit) {
+    val context = LocalContext.current
     val servers by ServerRepository.servers.collectAsState()
     val statuses by ServerRepository.statuses.collectAsState()
-    val config = servers.firstOrNull { it.id == serverId } ?: run { onBack(); return }
-    val status = statuses[serverId]
+    val config = servers.firstOrNull { it.id == serverId }
+    val running = statuses[serverId]?.running == true
+    var command by remember { mutableStateOf("") }
+    val lines = remember(serverId) { mutableStateListOf<String>() }
 
-    val context = LocalContext.current as? androidx.activity.ComponentActivity
-    val isWideLayout = context?.let {
-        calculateWindowSizeClass(it).widthSizeClass != WindowWidthSizeClass.Compact
-    } ?: false
-
-    var commandInput by remember { mutableStateOf("") }
-    val consoleLines = remember { mutableStateListOf<String>() }
-
-    var players by remember { mutableStateOf(parsePlayerList(consoleLines.last()) ?: emptyList()) }
-
+    LaunchedEffect(config) {
+        if (config == null) onBack()
+    }
     LaunchedEffect(serverId) {
         ServerForegroundService.consoleLinesFromUi().collect { line ->
-            consoleLines.add(line)
-            while (consoleLines.size > 500) consoleLines.removeAt(0)
-            parsePlayerList(line)?.let { players = it }
+            lines.add(line)
+            while (lines.size > 300) lines.removeAt(0)
         }
     }
 
-    LaunchedEffect(consoleLines.size) {
-        consoleLines.lastOrNull()?.let { line ->
-            parsePlayerList(line)?.let { players = it }
-        }
-    }
-
-    fun sendCommand(command: String) {
-        if (ServerForegroundService.sendCommandFromUi(command)) {
-            consoleLines.add("> $command")
+    fun send(raw: String) {
+        val normalized = raw.trim().removePrefix("/")
+        if (normalized.isBlank()) return
+        if (ServerForegroundService.sendCommandFromUi(normalized)) {
+            lines.add("> $normalized")
         } else {
-            consoleLines.add("[ERROR] Server is not running; command was not sent: $command")
+            lines.add("[CryptHost] Server is not running")
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Console") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-                actions = {
-                    IconButton(onClick = onAskAi) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = "Ask AI about this server")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            context?.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://127.0.0.1:8080")))
-                        },
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("WEB CONSOLE")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        if (isWideLayout) {
-            Row(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
-                Column(modifier = Modifier.weight(2f).fillMaxHeight()) {
-                    QuickCommandRow(quickCommands, ::sendCommand) { commandInput = it }
-                    HorizontalDivider()
-                    ConsoleLog(consoleLines, Modifier.weight(1f))
-                    CommandInputField(commandInput, { commandInput = it }) {
-                        if (commandInput.isNotBlank()) { sendCommand(commandInput); commandInput = "" }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text(config?.name ?: "Console") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
+        )
+    }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(if (running) "RUNNING" else "STOPPED", style = MaterialTheme.typography.titleMedium, color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    if (!running) {
+                        Text("The server is stopped. Start it from here or go back.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                config?.let {
+                                    context.startForegroundService(Intent(context, ServerForegroundService::class.java).setAction(ServerForegroundService.ACTION_START).putExtra(ServerForegroundService.EXTRA_CONFIG, it))
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Start server") }
+                    } else {
+                        OutlinedButton(
+                            onClick = { context.startService(Intent(context, ServerForegroundService::class.java).setAction(ServerForegroundService.ACTION_STOP)) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Stop server") }
                     }
                 }
-                Spacer(Modifier.width(16.dp))
-                PlayerRail(
-                    players = players,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    onKick = { name -> sendCommand("kick $name Kicked by host") },
-                    onBan = { name -> sendCommand("ban $name Banned by host") },
-                    onWhitelist = { name -> sendCommand("whitelist add $name") }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Console output", style = MaterialTheme.typography.titleMedium)
+            Card(Modifier.fillMaxWidth().weight(1f)) {
+                if (lines.isEmpty()) {
+                    Text("Waiting for server output…", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(lines) { line -> Text(line, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = command,
+                    onValueChange = { command = it },
+                    placeholder = { Text("Command, e.g. list") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send(command); command = "" }),
+                    modifier = Modifier.weight(1f)
                 )
-            }
-        } else {
-            Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
-                QuickCommandRow(quickCommands, ::sendCommand) { commandInput = it }
-                HorizontalDivider()
-                ConsoleLog(consoleLines, Modifier.weight(1f))
-                CommandInputField(commandInput, { commandInput = it }) {
-                    if (commandInput.isNotBlank()) { sendCommand(commandInput); commandInput = "" }
+                IconButton(onClick = { send(command); command = "" }, enabled = command.isNotBlank()) {
+                    Icon(Icons.AutoMirrored.Filled.Send, "Send command")
                 }
-                if (players.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    // PlayerRail renders its own "Online players (n)" header below —
-                    // don't duplicate it here (this line used to print it twice).
-                    PlayerRail(
-                        players = players,
-                        modifier = Modifier.heightIn(max = 220.dp),
-                        onKick = { name -> sendCommand("kick $name Kicked by host") },
-                        onBan = { name -> sendCommand("ban $name Banned by host") },
-                        onWhitelist = { name -> sendCommand("whitelist add $name") }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuickCommandRow(commands: List<QuickCommand>, onSend: (String) -> Unit, onPrefill: (String) -> Unit) {
-    val context = LocalContext.current
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("— LIVE OUTPUT —", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        IconButton(onClick = {
-            val share = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, "CryptMc console log\nUse the Console screen to view live output.")
-            }
-            context.startActivity(Intent.createChooser(share, "Share console log"))
-        }) {
-            Icon(Icons.Filled.Share, contentDescription = "Share log")
-        }
-    }
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-        items(commands) { qc ->
-            AssistChip(
-                onClick = {
-                    if (qc.command.endsWith(" ")) onPrefill("/${qc.command}") else onSend(qc.command)
-                },
-                label = { Text(qc.label) },
-                leadingIcon = { Icon(qc.icon, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                colors = if (qc.destructive) AssistChipDefaults.assistChipColors(
-                    labelColor = MaterialTheme.colorScheme.error,
-                    leadingIconContentColor = MaterialTheme.colorScheme.error
-                ) else AssistChipDefaults.assistChipColors()
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConsoleLog(lines: List<String>, modifier: Modifier = Modifier) {
-    LazyColumn(modifier = modifier.padding(vertical = 8.dp)) {
-        items(lines) { line ->
-            Text(line, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp))
-        }
-    }
-}
-
-@Composable
-private fun CommandInputField(value: String, onValueChange: (String) -> Unit, onSend: () -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        placeholder = { Text("Enter command...") },
-        leadingIcon = { Text("/", color = MaterialTheme.colorScheme.primary) },
-        trailingIcon = {
-            IconButton(onClick = onSend) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-        keyboardActions = KeyboardActions(onSend = { onSend() }),
-        modifier = Modifier.fillMaxWidth()
-    )
-}
-
-/** The wide-layout player-management rail — kick/ban/whitelist per player,
- *  filled from the /list parse above. */
-@Composable
-private fun PlayerRail(
-    players: List<String>,
-    modifier: Modifier = Modifier,
-    onKick: (String) -> Unit,
-    onBan: (String) -> Unit,
-    onWhitelist: (String) -> Unit
-) {
-    Column(modifier) {
-        Text("Online players (${players.size})", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        if (players.isEmpty()) {
-            Text("No players online", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            LazyColumn {
-                items(players) { name ->
-                    PlayerRow(name, onKick, onBan, onWhitelist)
-                    HorizontalDivider()
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlayerRow(name: String, onKick: (String) -> Unit, onBan: (String) -> Unit, onWhitelist: (String) -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Person, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(name, style = MaterialTheme.typography.bodyLarge)
-        }
-        Box {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Player actions")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(text = { Text("Whitelist") }, onClick = { onWhitelist(name); menuOpen = false })
-                DropdownMenuItem(text = { Text("Kick") }, onClick = { onKick(name); menuOpen = false })
-                DropdownMenuItem(
-                    text = { Text("Ban", color = MaterialTheme.colorScheme.error) },
-                    onClick = { onBan(name); menuOpen = false }
-                )
             }
         }
     }

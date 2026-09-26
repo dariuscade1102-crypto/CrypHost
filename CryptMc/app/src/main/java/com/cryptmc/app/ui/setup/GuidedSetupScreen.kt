@@ -32,7 +32,7 @@ private enum class WizardStep(val title: String, val subtitle: String) {
 }
 
 @Composable
-fun GuidedSetupScreen(onFinished: (serverId: String) -> Unit) {
+fun GuidedSetupScreen(onFinished: (serverId: String) -> Unit, onBack: () -> Unit = {}) {
     var stepIndex by remember { mutableIntStateOf(0) }
     var serverName by remember { mutableStateOf("") }
     var selectedLoader by remember { mutableStateOf(ServerLoader.PAPER) }
@@ -48,6 +48,10 @@ fun GuidedSetupScreen(onFinished: (serverId: String) -> Unit) {
                 navigationIcon = {
                     if (stepIndex > 0) {
                         IconButton(onClick = { stepIndex-- }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    } else {
+                        IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }

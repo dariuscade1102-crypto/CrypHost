@@ -1,15 +1,44 @@
 package com.cryptmc.app.ui.home
 
 import android.content.Intent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -17,133 +46,81 @@ import androidx.compose.ui.unit.dp
 import com.cryptmc.app.data.ServerConfig
 import com.cryptmc.app.data.ServerRepository
 import com.cryptmc.app.data.ServerRuntimeStatus
-import com.cryptmc.app.data.TunnelMode
 import com.cryptmc.app.service.ServerForegroundService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    onCreateServer: () -> Unit,
     onOpenConsole: (String) -> Unit,
     onOpenSettings: (String) -> Unit,
     onOpenFiles: (String) -> Unit,
-    onOpenAdminDashboard: () -> Unit,
-    onOpenAiAssistant: () -> Unit
+    onOpenAdminDashboard: () -> Unit = {},
+    onOpenAiAssistant: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val servers by ServerRepository.servers.collectAsState()
     val statuses by ServerRepository.statuses.collectAsState()
-    var tunnelMenuExpanded by remember { mutableStateOf(false) }
-    var selectedTunnel by remember { mutableStateOf(TunnelMode.LOCAL_ONLY) }
-    // Delete is destructive (world files, backups, config) and was previously a
-    // single un-confirmed tap — this holds the server pending confirmation.
     var pendingDelete by remember { mutableStateOf<ServerConfig?>(null) }
-    // ServerProcessManager (inside ServerForegroundService) only ever runs
-    // ONE server at a time — see its class doc — so once something is
-    // running, every other card's Start needs to be disabled rather than
-    // silently crashing the service when tapped.
     val anyRunning = statuses.values.any { it.running }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.Dns,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("cryptmc", color = MaterialTheme.colorScheme.primary)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenAiAssistant) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = "AI Assistant")
-                    }
-                    IconButton(onClick = onOpenAdminDashboard) {
-                        Icon(Icons.Filled.AdminPanelSettings, contentDescription = "Admin dashboard")
-                    }
-                    Box {
-                        AssistChip(
-                            onClick = { tunnelMenuExpanded = true },
-                            label = { Text("Tunnel: ${selectedTunnel.label()}") },
-                            leadingIcon = { Icon(Icons.Filled.Public, contentDescription = null) }
-                        )
-                        DropdownMenu(expanded = tunnelMenuExpanded, onDismissRequest = { tunnelMenuExpanded = false }) {
-                            TunnelMode.values().forEach { mode ->
-                                DropdownMenuItem(
-                                    text = { Text(mode.label()) },
-                                    onClick = { selectedTunnel = mode; tunnelMenuExpanded = false }
-                                )
-                            }
-                        }
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        if (servers.isEmpty()) {
-            EmptyState(Modifier.padding(padding))
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+    Scaffold(topBar = { TopAppBar(title = { Text("CryptHost") }) }) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Spacer(Modifier.size(8.dp))
+                Text("Servers", style = MaterialTheme.typography.headlineSmall)
+                Text("Start, monitor, and configure your Minecraft servers.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (servers.isEmpty()) {
+                item { EmptyState(onCreateServer) }
+            } else {
                 items(servers, key = { it.id }) { config ->
-                    val status = statuses[config.id] ?: ServerRuntimeStatus()
                     ServerCard(
                         config = config,
-                        status = status,
-                        canStart = !anyRunning || status.running,
+                        status = statuses[config.id] ?: ServerRuntimeStatus(),
+                        canStart = !anyRunning || statuses[config.id]?.running == true,
                         onStart = {
-                            if (!status.running) {
-                                // This used to be onStart = { onOpenConsole(config.id) }
-                                // — tapping "Start" never actually started
-                                // anything, it just navigated to a console
-                                // with nothing running behind it.
-                                val intent = Intent(context, ServerForegroundService::class.java)
-                                    .setAction(ServerForegroundService.ACTION_START)
-                                    .putExtra(ServerForegroundService.EXTRA_CONFIG, config)
-                                context.startForegroundService(intent)
-                            }
+                            val intent = Intent(context, ServerForegroundService::class.java)
+                                .setAction(ServerForegroundService.ACTION_START)
+                                .putExtra(ServerForegroundService.EXTRA_CONFIG, config)
+                            context.startForegroundService(intent)
                             onOpenConsole(config.id)
                         },
                         onStop = {
-                            val intent = Intent(context, ServerForegroundService::class.java)
-                                .setAction(ServerForegroundService.ACTION_STOP)
-                            context.startService(intent)
+                            context.startService(Intent(context, ServerForegroundService::class.java).setAction(ServerForegroundService.ACTION_STOP))
                         },
-                        onOpenMap = {
-                            android.widget.Toast.makeText(context, "World map is available after a live map plugin is configured.", android.widget.Toast.LENGTH_LONG).show()
-                        },
-                        onOpenFiles = { onOpenFiles(config.id) },
-                        onOpenSettings = { onOpenSettings(config.id) },
+                        onConsole = { onOpenConsole(config.id) },
+                        onFiles = { onOpenFiles(config.id) },
+                        onSettings = { onOpenSettings(config.id) },
                         onDelete = { pendingDelete = config }
                     )
                 }
+                item {
+                    OutlinedButton(onClick = onCreateServer, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Add server")
+                    }
+                }
             }
+            item { Spacer(Modifier.size(20.dp)) }
         }
     }
 
     pendingDelete?.let { config ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-            title = { Text("Delete \"${config.name}\"?") },
-            text = { Text("This removes the server from CryptMc. This can't be undone.") },
+            title = { Text("Remove ${config.name}?") },
+            text = { Text("This removes the server configuration from CryptHost. Server files are not deleted.") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        ServerRepository.delete(config.id)
-                        pendingDelete = null
-                    }
-                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { ServerRepository.delete(config.id); pendingDelete = null }) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } }
         )
     }
 }
@@ -155,103 +132,50 @@ private fun ServerCard(
     canStart: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
-    onOpenMap: () -> Unit,
-    onOpenFiles: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onConsole: () -> Unit,
+    onFiles: () -> Unit,
+    onSettings: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (status.running) Icons.Filled.Circle else Icons.Outlined.Circle,
-                    contentDescription = null,
-                    tint = if (status.running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(10.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(if (status.running) "ONLINE" else "OFFLINE", style = MaterialTheme.typography.labelMedium)
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Server icon placeholder — real icon comes from config.iconPath
-                // once the user picks one via the General tab's image picker.
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.Dns, contentDescription = null)
+                Icon(Icons.Filled.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(config.name, style = MaterialTheme.typography.titleLarge)
+                    Text("${config.loader.displayName} · Minecraft ${config.minecraftVersion}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(config.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "${config.loader.displayName} · ${config.maxPlayers} players",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(if (status.running) "ONLINE" else "OFFLINE", style = MaterialTheme.typography.labelMedium, color = if (status.running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
-            Spacer(Modifier.height(12.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onStart, modifier = Modifier.weight(1f), enabled = canStart) {
-                    // Previously used Icons.Filled.Stop here paired with the
-                    // text "Open Console" — an icon that promises stopping
-                    // the server next to a label that just navigates away.
-                    // Visibility (view) matches what the button really does.
-                    Icon(if (status.running) Icons.Filled.Visibility else Icons.Filled.PlayArrow, contentDescription = null)
+            Spacer(Modifier.size(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = if (status.running) onConsole else onStart, enabled = status.running || canStart, modifier = Modifier.weight(1f)) {
+                    Icon(if (status.running) Icons.Filled.Terminal else Icons.Filled.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (status.running) "Open Console" else "Start")
+                    Text(if (status.running) "Console" else "Start")
                 }
                 if (status.running) {
-                    IconButton(onClick = onStop) {
-                        Icon(Icons.Filled.Stop, contentDescription = "Stop server")
-                    }
+                    IconButton(onClick = onStop) { Icon(Icons.Filled.Stop, contentDescription = "Stop") }
                 }
-                IconButton(onClick = onOpenMap, enabled = config.liveWorldMapEnabled) {
-                    Icon(Icons.Outlined.Map, contentDescription = "World map")
-                }
-                IconButton(onClick = onOpenFiles) {
-                    Icon(Icons.Outlined.Folder, contentDescription = "Files")
-                }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Delete")
-                }
+                IconButton(onClick = onFiles) { Icon(Icons.Filled.Folder, contentDescription = "Files") }
+                IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.DeleteOutline, contentDescription = "Remove") }
             }
         }
     }
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Outlined.Dns, contentDescription = null, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(12.dp))
-        Text("No servers yet", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Tap New in the bottom bar to create your first server.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+private fun EmptyState(onCreateServer: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Filled.Dns, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.size(12.dp))
+            Text("No servers yet", style = MaterialTheme.typography.titleMedium)
+            Text("Create one to get started.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.size(16.dp))
+            Button(onClick = onCreateServer) { Text("Create server") }
+        }
     }
-}
-
-private fun TunnelMode.label() = when (this) {
-    TunnelMode.LOCAL_ONLY -> "Local"
-    TunnelMode.PLAYIT_GG -> "playit.gg"
-    TunnelMode.CLOUDFLARE -> "Cloudflare"
-    TunnelMode.HOTSPOT -> "Hotspot"
 }

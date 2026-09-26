@@ -33,6 +33,7 @@ fun ServerSettingsScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Un
         onBack(); return
     }
     var tab by remember { mutableStateOf(SettingsTab.GENERAL) }
+    var sectionMenuExpanded by remember { mutableStateOf(false) }
     var draft by remember(config.id) { mutableStateOf(config) }
 
     fun applyChange(updated: ServerConfig) {
@@ -71,9 +72,21 @@ fun ServerSettingsScreen(serverId: String, onBack: () -> Unit, onAskAi: () -> Un
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 16.dp) {
-                SettingsTab.entries.forEach { t ->
-                    Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })
+            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                OutlinedButton(onClick = { sectionMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Section: ${tab.label}")
+                }
+                DropdownMenu(
+                    expanded = sectionMenuExpanded,
+                    onDismissRequest = { sectionMenuExpanded = false },
+                    modifier = Modifier.fillMaxWidth(0.9f)
+                ) {
+                    SettingsTab.entries.forEach { section ->
+                        DropdownMenuItem(
+                            text = { Text(section.label) },
+                            onClick = { tab = section; sectionMenuExpanded = false }
+                        )
+                    }
                 }
             }
             Box(modifier = Modifier.weight(1f).padding(16.dp)) {
